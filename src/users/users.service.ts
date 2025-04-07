@@ -1,4 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -6,8 +9,8 @@ import { User } from './user.entity';
 import { UpdateUserDto } from './update-user.dto';
 
 /**
- * UsersService handles all user-related database operations,
- * including listing, retrieving, updating, and deleting users.
+ * UsersService encapsulates all business logic for user-related database operations.
+ * Includes creation, lookup, updating, and deletion of users.
  */
 @Injectable()
 export class UsersService {
@@ -17,9 +20,51 @@ export class UsersService {
   ) {}
 
   /**
+   * Creates a new user and saves them to the database.
+   * @param userData Partial user object (usually from signup)
+   * @returns The full user entity
+   */
+  async create(userData: Partial<User>): Promise<User> {
+    const user = this.userRepository.create(userData);
+    return await this.userRepository.save(user);
+  }
+
+  /**
+   * Finds a user by their email.
+   * Used during signup to check for duplicates.
+   * @param email User's email
+   */
+  async findByEmail(email: string): Promise<User | null> {
+    return await this.userRepository.findOneBy({ email });
+  }
+
+  /**
+   * Finds a user by email with password included.
+   * Used only during login to validate credentials.
+   * @param email User's email
+   */
+  async findByEmailWithPassword(email: string): Promise<User | null> {
+    return await this.userRepository.findOne({
+      where: { email },
+      select: ['id', 'email', 'password'],
+    });
+  }
+
+  /**
+   * Finds a user by email and includes refresh token.
+   * Used during refresh token validation.
+   * @param email User's email
+   */
+  async findByEmailWithRefreshToken(email: string): Promise<User | null> {
+    return await this.userRepository.findOne({
+      where: { email },
+      select: ['id', 'email', 'refreshToken'],
+    });
+  }
+
+  /**
    * Retrieves all users from the database.
-   * Passwords are removed before returning results.
-   * @returns Array of users without password field
+   * Excludes the password from each result.
    */
   async findAll(): Promise<Partial<User>[]> {
     const users = await this.userRepository.find();
@@ -27,26 +72,24 @@ export class UsersService {
   }
 
   /**
-   * Retrieves a single user by their unique ID.
-   * @param id The UUID of the user
-   * @returns The user without password field
-   * @throws NotFoundException if user is not found
+   * Finds a single user by ID.
+   * Excludes password from returned result.
+   * @param id UUID of the user
    */
   async findOne(id: string): Promise<Partial<User>> {
     const user = await this.userRepository.findOneBy({ id });
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
+
     const { password, ...rest } = user;
     return rest;
   }
 
   /**
-   * Updates a user's details using a partial update DTO.
-   * @param id The UUID of the user
-   * @param updateUserDto Fields to update (email, firstName, lastName)
-   * @returns The updated user without password field
-   * @throws NotFoundException if user does not exist
+   * Updates a user's profile fields.
+   * @param id UUID of the user
+   * @param updateUserDto Fields to update
    */
   async update(id: string, updateUserDto: UpdateUserDto): Promise<Partial<User>> {
     await this.userRepository.update(id, updateUserDto);
@@ -61,14 +104,23 @@ export class UsersService {
   }
 
   /**
-   * Deletes a user from the database.
-   * @param id The UUID of the user
-   * @throws NotFoundException if no record was deleted
+   * Deletes a user by ID.
+   * @param id UUID of the user
    */
   async remove(id: string): Promise<void> {
     const result = await this.userRepository.delete(id);
     if (result.affected === 0) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
+  }
+
+  /**
+   * Updates a user's refresh token (hashed).
+   * Called during login or token rotation.
+   * @param userId UUID of the user
+   * @param token hashed refresh token
+   */
+  async updateRefreshToken(userId: string, token: string): Promise<void> {
+    await this.userRepository.update(userId, { refreshToken: token });
   }
 }

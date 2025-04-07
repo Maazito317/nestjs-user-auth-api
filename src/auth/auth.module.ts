@@ -1,31 +1,28 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
-
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { JwtStrategy } from './strategies/jwt.strategy';
 import { User } from '../users/user.entity';
+import { JwtModule } from '@nestjs/jwt';
+import { JwtStrategy } from './strategies/jwt.strategy';
+import { UsersModule } from '../users/users.module';
 
 /**
- * AuthModule handles all authentication-related logic,
- * including signup, login, JWT strategy registration, and protected route access.
+ * AuthModule sets up all authentication-related providers and dependencies.
+ * - Imports User entity and JwtModule
+ * - Provides AuthService and JwtStrategy
+ * - Exposes AuthController to handle incoming requests
  */
 @Module({
   imports: [
-    // Registers the User entity with TypeORM in this module's scope
-    TypeOrmModule.forFeature([User]),
-
-    // Registers JWT module with secret and expiration from environment
+    TypeOrmModule.forFeature([User]), // for repository access if needed internally
     JwtModule.register({
-      secret: process.env.JWT_SECRET,
+      secret: process.env.JWT_SECRET, // secret used to sign JWTs
       signOptions: { expiresIn: process.env.JWT_EXPIRES_IN || '1h' },
     }),
+    UsersModule, // Import UsersService to delegate user logic
   ],
-  // Exposes controller to handle auth routes (e.g., /auth/signup, /auth/login)
   controllers: [AuthController],
-
-  // Registers AuthService for business logic and JwtStrategy for token validation
   providers: [AuthService, JwtStrategy],
 })
 export class AuthModule {}

@@ -1,95 +1,124 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { JwtService } from '@nestjs/jwt';
-import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
-
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
-import { User } from '../users/user.entity';
+import { UsersService } from '../users/users.service';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
 
 /**
- * AuthService handles core authentication logic including:
- * - user registration
- * - login credential validation
- * - password hashing
- * - JWT token generation
+ * AuthService handles the authentication logic:
+ * - User registration
+ * - Credential verification
+ * - Token generation and refresh
  */
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectRepository(User)
-    private userRepository: Repository<User>,
+    private usersService: UsersService,
     private jwtService: JwtService,
   ) {}
 
   /**
-   * Registers a new user by validating input, hashing the password,
-   * and saving the user to the database.
-   * @param signupDto The user's registration details
-   * @returns The newly created user (excluding password)
-   * @throws BadRequestException if email is already in use
+   * Registers a new user in the system.
+   * - Checks if email is taken
+   * - Hashes password
+   * - Creates user via UsersService
+   * @param signupDto DTO with user registration data
    */
   async signup(signupDto: SignupDto) {
     const { email, password, firstName, lastName } = signupDto;
 
-    // Check if a user with this email already exists
-    const existingUser = await this.userRepository.findOneBy({ email });
+    const existingUser = await this.usersService.findByEmail(email);
     if (existingUser) {
       throw new BadRequestException('Email is already registered');
     }
 
-    // Hash the password for secure storage
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create a new user entity
-    const user = this.userRepository.create({
+    const user = await this.usersService.create({
       email,
       password: hashedPassword,
       firstName,
       lastName,
     });
 
-    // Save the user in the database
-    const savedUser = await this.userRepository.save(user);
-
-    // Remove password before returning
-    const { password: _, ...result } = savedUser;
+    const { password: _, ...result } = user;
     return result;
   }
 
   /**
-   * Authenticates a user using email and password.
-   * If valid, returns a signed JWT access token.
-   * @param loginDto The user's login credentials
-   * @returns Object containing the access token
-   * @throws BadRequestException if credentials are invalid
+   * Authenticates a user and returns access and refresh tokens.
+   * - Verifies email and password
+   * - Stores hashed refresh token in DB
+   * @param loginDto DTO with email and password
    */
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
 
-    // Find user and explicitly select password
-    const user = await this.userRepository.findOne({
-      where: { email },
-      select: ['id', 'email', 'password'],
-    });
-
+    const user = await this.usersService.findByEmailWithPassword(email);
     if (!user) {
       throw new BadRequestException('Invalid credentials');
     }
 
-    // Compare password with hashed value
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       throw new BadRequestException('Invalid credentials');
     }
 
-    // Sign and return JWT
     const payload = { sub: user.id, email: user.email };
-    const token = this.jwtService.sign(payload);
+
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+    });
+
+    const refreshToken = this.jwtService.sign(payload, {
+      expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+    });
+
+    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+    await this.usersService.updateRefreshToken(user.id, hashedRefreshToken);
 
     return {
-      accessToken: token,
+      accessToken,
+      refreshToken,
     };
+  }
+
+  /**
+   * Accepts a refresh token and returns a new access token.
+   * - Verifies JWT signature and expiration
+   * - Matches against stored hash
+   * - Returns new access token if valid
+   * @param refreshToken Raw token string from client
+   */
+  async refreshAccessToken(refreshToken: string) {
+    try {
+      const payload = this.jwtService.verify(refreshToken, {
+        secret: process.env.JWT_SECRET,
+      });
+
+      const user = await this.usersService.findByEmailWithRefreshToken(payload.email);
+      if (!user || !user.refreshToken) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      const isMatch = await bcrypt.compare(refreshToken, user.refreshToken);
+      if (!isMatch) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      const newToken = this.jwtService.sign(
+        { sub: user.id, email: user.email },
+        { expiresIn: process.env.JWT_EXPIRES_IN || '1h' },
+      );
+
+      return { accessToken: newToken };
+    } catch (err) {
+      throw new UnauthorizedException('Token expired or invalid');
+    }
   }
 }

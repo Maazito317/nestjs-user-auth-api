@@ -7,23 +7,22 @@ import {
   Body,
   UseGuards,
 } from '@nestjs/common';
-
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateUserDto } from './update-user.dto';
 
 /**
- * UsersController handles all user-related HTTP routes under /users.
- * All routes are protected by JWT authentication via JwtAuthGuard.
+ * Handles all HTTP requests related to user management.
+ * All routes are protected using JWT authentication.
  */
 @Controller('users')
-@UseGuards(JwtAuthGuard) // Apply JWT auth guard to all routes in this controller
+@UseGuards(JwtAuthGuard) // Protect all routes with JWT guard
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   /**
-   * Route: GET /users
-   * Description: Retrieves a list of all users (passwords excluded).
+   * GET /users
+   * Fetch a list of all users (excluding passwords).
    */
   @Get()
   async findAll() {
@@ -31,8 +30,8 @@ export class UsersController {
   }
 
   /**
-   * Route: GET /users/:id
-   * Description: Fetches a specific user by their ID.
+   * GET /users/:id
+   * Fetch details for a single user by ID.
    * @param id UUID of the user
    */
   @Get(':id')
@@ -41,10 +40,10 @@ export class UsersController {
   }
 
   /**
-   * Route: PUT /users/:id
-   * Description: Updates user details such as first name, last name, or email.
-   * @param id UUID of the user to update
-   * @param updateUserDto Validated update fields
+   * PUT /users/:id
+   * Update an existing user's information.
+   * @param id UUID of the user
+   * @param updateUserDto Object containing fields to update
    */
   @Put(':id')
   async update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
@@ -52,9 +51,9 @@ export class UsersController {
   }
 
   /**
-   * Route: DELETE /users/:id
-   * Description: Deletes a user from the system by ID.
-   * @param id UUID of the user to delete
+   * DELETE /users/:id
+   * Remove a user from the system.
+   * @param id UUID of the user
    */
   @Delete(':id')
   async remove(@Param('id') id: string) {
